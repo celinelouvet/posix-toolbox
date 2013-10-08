@@ -1,0 +1,64 @@
+#!/bin/bash -e
+
+function log {
+	git --no-pager log --oneline --decorate --graph $*
+}
+
+filter_pattern=$(git config bubbles.pattern || echo "--")
+
+commit=$(git find-pushable-head "$filter_pattern")
+branch_name=$(git rev-parse --symbolic-full-name HEAD | sed 's-^refs/heads/--')
+
+push_command="git push mine $commit:$branch_name --force"
+
+function print_log {
+	if [[ ! $(git rev-parse HEAD) =~ ^$commit ]]; then
+		log $commit..HEAD
+		echo "--------------------------------------------------"
+	fi
+	log HEAD@{u}..$commit
+}
+
+function announce {
+	echo "$*"
+	$*
+}
+
+function print_status {
+	local command=$1
+	diff_stat=$(git diff --stat mine/$branch_name..$commit | wc -c)
+	log_stat=$(git --no-pager log --oneline mine/$branch_name..$commit | wc -l)
+	if [ "$diff_stat" != "0" ]; then
+		if [ "$command" == "execute" ]; then
+			$push_command
+		else
+			announce git diff -b -M mine/$branch_name..$commit --stat
+
+			echo ""
+			echo "$push_command"
+		fi
+	elif [ "$log_stat" != "0" ]; then
+		echo "No diff but history diverged."
+		echo ""
+		if [ "$command" == "execute" ]; then
+			$push_command
+		else
+			echo "$push_command"
+		fi
+	else
+		echo "Nothing to push. We're good!"
+	fi
+}
+
+if [ "$1" == "push" ]; then
+	print_status execute
+elif [ "$1" == "diff" ]; then
+	shift 1
+	if [ "$diff_stat" != "0" ]; then
+		announce git diff -b -M mine/$branch_name..$commit $*
+	fi
+else
+	print_log
+	echo ""
+	print_status
+fi
